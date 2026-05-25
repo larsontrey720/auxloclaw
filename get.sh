@@ -38,6 +38,39 @@ ensure_npm() {
     fi
 }
 
+# Resolve the pip command, installing pip if needed
+ensure_pip() {
+    if command -v pip3 &>/dev/null; then
+        PIP=pip3
+        return
+    elif command -v pip &>/dev/null; then
+        PIP=pip
+        return
+    fi
+    echo "==> pip not found. Installing pip..."
+    if command -v apt-get &>/dev/null; then
+        apt-get update -qq && apt-get install -y -qq python3-pip >/dev/null 2>&1
+        if command -v pip3 &>/dev/null; then
+            PIP=pip3
+            return
+        fi
+    fi
+    if command -v python3 &>/dev/null; then
+        python3 -m ensurepip --upgrade 2>/dev/null || python3 -m ensurepip 2>/dev/null
+        if command -v pip3 &>/dev/null; then
+            PIP=pip3
+            return
+        fi
+        # ensurepip may not put pip on PATH; try direct invocation
+        if python3 -m pip --version &>/dev/null; then
+            PIP="python3 -m pip"
+            return
+        fi
+    fi
+    echo "Warning: Could not install pip automatically. Please install pip manually."
+    return 1
+}
+
 main() {
     local target
     target="$(detect_platform)"
@@ -67,7 +100,11 @@ main() {
     # Install webserp (multi-engine web search, no API key)
     if ! command -v webserp &>/dev/null; then
         echo "Installing webserp (web search engine)..."
-        pip install webserp -q 2>&1 | tail -5 || echo "Warning: webserp install failed (manual: pip install webserp)"
+        if ensure_pip; then
+            $PIP install webserp --break-system-packages -q 2>&1 | tail -5 || echo "Warning: webserp install failed (manual: pip install webserp)"
+        else
+            echo "Warning: webserp install failed -- pip not available (manual: pip install webserp)"
+        fi
     fi
 
     echo "Browser: agent-browser (by Vercel)"
