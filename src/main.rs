@@ -42,8 +42,44 @@ use tracing_subscriber::EnvFilter;
 
 use cli::{Cli, Commands};
 
+/// Set up a signal handler to reap zombie child processes
+/// When a child process exits, if the parent doesn't wait for it, it becomes a zombie.
+/// This handler ensures we reap any exited children, preventing zombie accumulation.
+#[cfg(unix)]
+fn setup_sigchld_handler() {
+    extern "C" fn handle_sigchld(_: i32) {
+        // Reap all zombie children using waitpid in non-blocking mode
+        unsafe {
+            loop {
+                let mut status: i32 = 0;
+                let pid = libc::waitpid(-1, &mut status, libc::WNOHANG);
+                if pid <= 0 {
+                    break;
+                }
+            }
+        }
+    }
+    
+    unsafe {
+        // Install the signal handler for SIGCHLD
+        let mut sa: libc::sigaction = std::mem::zeroed();
+        sa.sa_sigaction = handle_sigchld as libc::sighandler_t;
+        // Allow system calls to be interrupted by the signal
+        sa.sa_flags = libc::SA_RESTART;
+        let _ = libc::sigaction(libc::SIGCHLD, &sa, std::ptr::null_mut());
+    }
+}
+
+#[cfg(not(unix))]
+fn setup_sigchld_handler() {
+    // No-op on non-Unix platforms
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Set up signal handler to reap zombie child processes
+    setup_sigchld_handler();
+
     let args = Cli::parse_args();
 
     // Initialize logging
