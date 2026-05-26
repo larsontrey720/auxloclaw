@@ -30,6 +30,12 @@ pub struct SubAgentConfig {
     pub timeout_secs: u64,
     /// Max tool calls allowed
     pub max_tools: u32,
+    /// Override model (inherits from user's ModelStore if set)
+    pub override_model: Option<String>,
+    /// Override base URL (inherits from user's ModelStore if set)
+    pub override_base_url: Option<String>,
+    /// Override API key (inherits from user's ModelStore if set)
+    pub override_api_key: Option<String>,
 }
 
 /// Sub-agent result
@@ -177,7 +183,7 @@ impl SubAgent {
             }
 
             let request = CompletionRequest {
-                model: self.default_model.clone(),
+                model: self.config.override_model.clone().unwrap_or_else(|| self.default_model.clone()),
                 messages: messages.clone(),
                 temperature: Some(0.7),
                 max_tokens: Some(4096),
@@ -192,8 +198,8 @@ impl SubAgent {
                     }
                 }).collect()),
                 stream: None,
-                base_url: None,
-                api_key: None,
+                base_url: self.config.override_base_url.clone(),
+                api_key: self.config.override_api_key.clone(),
             };
 
             let completion = self.providers.complete(request).await?;

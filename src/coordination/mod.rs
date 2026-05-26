@@ -107,6 +107,9 @@ impl AgentCoordinator {
             isolated_context: true,
             timeout_secs: 60,
             max_tools: 10,
+            override_model: None,
+            override_base_url: None,
+            override_api_key: None,
         };
 
         let sub_agent = self.spawn_sub_agent(config).await?;

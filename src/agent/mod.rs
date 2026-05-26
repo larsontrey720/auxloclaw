@@ -128,6 +128,8 @@ pub struct AgentCore {
     current_channel: parking_lot::RwLock<Option<String>>,
     /// User ID of the current request (set per-request)
     current_user_id: parking_lot::RwLock<Option<String>>,
+    /// Shared context for sub-agent tool: (channel, user_id), updated per-request
+    subagent_context: Arc<parking_lot::RwLock<(Option<String>, Option<String>)>>,
     /// When true, skip loading persona from disk and use config.persona directly.
     /// Used by /code mode to enforce the coding agent persona.
     override_system_prompt: Arc<RwLock<Option<String>>>,
@@ -142,9 +144,10 @@ impl AgentCore {
         config: AppConfig,
         session_store: Arc<SessionStore>,
         code_mode: Arc<CodeModeStore>,
-    model_store: Arc<crate::memory::model_store::ModelStore>,
+        model_store: Arc<crate::memory::model_store::ModelStore>,
         plugins: Arc<PluginManager>,
         checkpoint_manager: Arc<CheckpointManager>,
+        subagent_context: Arc<parking_lot::RwLock<(Option<String>, Option<String>)>>,
     ) -> Result<Self> {
         let persona = load_current_persona().unwrap_or_else(|err| {
             tracing::warn!(
@@ -201,6 +204,7 @@ impl AgentCore {
             last_activity: RwLock::new(HashMap::new()),
             current_channel: parking_lot::RwLock::new(Option::<String>::None),
             current_user_id: parking_lot::RwLock::new(Option::<String>::None),
+            subagent_context,
             override_system_prompt: Arc::new(RwLock::new(None)),
         })
     }
@@ -246,6 +250,8 @@ impl AgentCore {
     pub async fn set_session_context(&self, channel: &str, user_id: &str) {
         *self.current_channel.write() = Some(channel.to_string());
         *self.current_user_id.write() = Some(user_id.to_string());
+        // Sync to shared context so sub-agent tool can read it
+        *self.subagent_context.write() = (Some(channel.to_string()), Some(user_id.to_string()));
     }
 
     pub async fn process(&self, message: &str, session_id: Option<&str>) -> String {

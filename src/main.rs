@@ -229,21 +229,28 @@ async fn run_gateway(host: &str, port: u16) -> anyhow::Result<()> {
     }
     raw_orchestrator.register_send_message_tool(message_router.clone());
 
+    // Create shared context state for sub-agent tool (updated per-request by agent)
+    let subagent_context: Arc<parking_lot::RwLock<(Option<String>, Option<String>)>> =
+        Arc::new(parking_lot::RwLock::new((None, None)));
+
     // Create sub-agent coordinator placeholder (populated after agent init)
     let coordinator: Arc<tokio::sync::RwLock<Option<Arc<coordination::AgentCoordinator>>>> =
         Arc::new(tokio::sync::RwLock::new(None));
-    raw_orchestrator.register_subagent_tool(coordinator.clone());
+
+    // Initialize model store early so sub-agent tool can read user overrides
+    let model_store = Arc::new(memory::model_store::ModelStore::new(&session_db_parent)?);
+
+    raw_orchestrator.register_subagent_tool(coordinator.clone(), model_store.clone(), subagent_context.clone());
 
     let orchestrator = Arc::new(raw_orchestrator);
     if config.mcp.enabled {
         let count = orchestrator.register_mcp_tools(&config.mcp).await?;
-        info!("🔌 Registered {} MCP tools", count);
+        info!("{} Registered {} MCP tools", "", count);
     }
 
     // Initialize persistent session store
     let session_store = Arc::new(memory::SessionStore::new(&session_db)?);
     let code_mode = Arc::new(memory::CodeModeStore::new(&session_db)?);
-    let model_store = Arc::new(memory::model_store::ModelStore::new(&session_db_parent)?);
     let checkpoint_manager = Arc::new(CheckpointManager::new(&session_db)?);
 
     plugins.run_lifecycle(plugins::HookEvent::Startup).await;
@@ -258,6 +265,7 @@ async fn run_gateway(host: &str, port: u16) -> anyhow::Result<()> {
         model_store.clone(),
         plugins.clone(),
         checkpoint_manager.clone(),
+        subagent_context.clone(),
     )?);
 
     // Load persisted sessions

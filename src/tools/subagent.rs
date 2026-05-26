@@ -4,15 +4,26 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::coordination::{AgentCoordinator, SubAgentConfig, TaskDelegator};
+use crate::memory::model_store::ModelStore;
 use crate::orchestrator::{Tool, ToolResult};
 
 pub struct DelegateToSubAgentTool {
     coordinator: Arc<RwLock<Option<Arc<AgentCoordinator>>>>,
+    model_store: Arc<ModelStore>,
+    current_context: Arc<parking_lot::RwLock<(Option<String>, Option<String>)>>,
 }
 
 impl DelegateToSubAgentTool {
-    pub fn new(coordinator: Arc<RwLock<Option<Arc<AgentCoordinator>>>>) -> Self {
-        Self { coordinator }
+    pub fn new(
+        coordinator: Arc<RwLock<Option<Arc<AgentCoordinator>>>>,
+        model_store: Arc<ModelStore>,
+        current_context: Arc<parking_lot::RwLock<(Option<String>, Option<String>)>>,
+    ) -> Self {
+        Self {
+            coordinator,
+            model_store,
+            current_context,
+        }
     }
 }
 
@@ -108,12 +119,45 @@ impl Tool for DelegateToSubAgentTool {
             delegator.classify_task(&task)
         });
 
+        // Read current user context (set by the agent per-request)
+        let (override_model, override_base_url, override_api_key) = {
+            let (channel, user_id) = {
+                let ctx = self.current_context.read();
+                (ctx.0.clone(), ctx.1.clone())
+            };
+            match (channel, user_id) {
+                (Some(ch), Some(uid)) => {
+                    match self.model_store.get(&ch, &uid) {
+                        Ok(Some(ov)) => {
+                            let api_key = ov.encrypted_api_key.as_ref().and_then(|enc| {
+                                self.model_store.decrypt_key(enc).ok()
+                            });
+                            tracing::info!(
+                                "Sub-agent inheriting model override: model={:?}, base_url={:?}, has_key={}",
+                                ov.model_id, ov.base_url, api_key.is_some()
+                            );
+                            (ov.model_id, ov.base_url, api_key)
+                        }
+                        Ok(None) => (None, None, None),
+                        Err(e) => {
+                            tracing::warn!("Failed to read model override for sub-agent: {}", e);
+                            (None, None, None)
+                        }
+                    }
+                }
+                _ => (None, None, None),
+            }
+        };
+
         let config = SubAgentConfig {
             agent_type: resolved_type.clone(),
             task: task.clone(),
             isolated_context: true,
             timeout_secs,
             max_tools,
+            override_model,
+            override_base_url,
+            override_api_key,
         };
 
         tracing::info!(

@@ -48,6 +48,7 @@ pub async fn handle_chat(
         model_store,
         plugins.clone(),
         checkpoint_manager.clone(),
+        Arc::new(parking_lot::RwLock::new((None, None))),
     )?);
 
     match message {
