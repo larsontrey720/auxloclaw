@@ -250,10 +250,10 @@ async fn run_gateway(host: &str, port: u16) -> anyhow::Result<()> {
 
     let agent = Arc::new(agent::AgentCore::new(
         memory,
-        providers,
-        orchestrator,
+        providers.clone(),
+        orchestrator.clone(),
         config.clone(),
-        session_store,
+        session_store.clone(),
         code_mode.clone(),
         model_store.clone(),
         plugins.clone(),
@@ -264,6 +264,18 @@ async fn run_gateway(host: &str, port: u16) -> anyhow::Result<()> {
     agent.load_sessions().await?;
     
     // Now initialize the sub-agent coordinator with all dependencies
+    let coordinator_instance = Arc::new(coordination::AgentCoordinator::new(
+        agent.clone(),
+        providers.clone(),
+        orchestrator.clone(),
+        session_store.clone(),
+        config.clone(),
+    ));
+    {
+        let mut coord_guard = coordinator.write().await;
+        *coord_guard = Some(coordinator_instance);
+    }
+    tracing::info!("Sub-agent coordinator initialized");
 
     let _cron_scheduler =
         scheduler::CronScheduler::start(agent.clone(), config.scheduler.clone()).await?;
