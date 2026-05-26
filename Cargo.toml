@@ -1,6 +1,6 @@
 [package]
 name = "auxloclaw"
-version = "0.7.3"
+version = "0.7.4"
 edition = "2021"
 authors = ["Auxlo.xyz <hello@auxlo.xyz>"]
 description = "Ultra-high-performance AI agent framework - beats Hermes and Nanobot"
