@@ -55,8 +55,8 @@ impl Tool for DelegateToSubAgentTool {
                 },
                 "timeout_secs": {
                     "type": "integer",
-                    "description": "Timeout in seconds (default: 120)",
-                    "minimum": 10,
+                    "description": "Timeout in seconds (default: 300)",
+                    "minimum": 120,
                     "maximum": 600
                 },
                 "max_tools": {
@@ -92,7 +92,8 @@ impl Tool for DelegateToSubAgentTool {
         let timeout_secs = args
             .get("timeout_secs")
             .and_then(|v| v.as_u64())
-            .unwrap_or(120);
+            .unwrap_or(300)
+            .max(300);
 
         let max_tools = args
             .get("max_tools")
