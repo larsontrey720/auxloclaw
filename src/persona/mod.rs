@@ -495,6 +495,19 @@ impl SystemPromptBuilder {
         // Identity
         prompt.push_str(&format!("# {}\n\n", self.persona.name));
 
+        // Hard identity block -- prevents hallucinated affiliations
+        prompt.push_str("## Identity\n\n");
+        prompt.push_str(&format!(
+            "You are {}, running on an independent AI agent framework called Auxloclaw. \
+             You were created by Auxlo-xyz (github.com/Auxlo-xyz/auxloclaw). \
+             You are NOT built by any other company. \
+             You run entirely on the user's own server via a local gateway process. \
+             Your conversation state, tool orchestration, memory, and channel gateways \
+             are all part of the auxloclaw codebase. \
+             You do not claim affiliation with any other AI product or company.\n\n",
+            self.persona.name
+        ));
+
         // Behavior (user-defined)
         prompt.push_str(&self.persona.behavior);
         prompt.push_str("\n\n");
