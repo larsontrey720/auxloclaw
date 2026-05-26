@@ -333,8 +333,14 @@ async fn run_gateway(host: &str, port: u16) -> anyhow::Result<()> {
         let discord_agent = agent.clone();
         let discord_config = config.channels.discord.clone();
         info!("💬 Starting Discord gateway...");
+
+        // Create Discord adapter for mid-task message delivery
+        let discord_http = Arc::new(serenity::http::Http::new(&discord_config.token));
+        let discord_adapter = Arc::new(tools::DiscordAdapter::new(discord_http));
+        message_router.register(discord_adapter.clone() as Arc<dyn tools::PlatformAdapter>).await;
+
         Some(tokio::spawn(async move {
-            if let Err(e) = channels::discord::start(discord_agent, model_store_discord, code_mode_discord, Some(discord_config)).await {
+            if let Err(e) = channels::discord::start(discord_agent, model_store_discord, code_mode_discord, Some(discord_config), Some(discord_adapter)).await {
                 tracing::error!("Discord error: {}", e);
             }
         }))

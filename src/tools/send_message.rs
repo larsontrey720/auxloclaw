@@ -100,12 +100,23 @@ pub trait PlatformAdapter: Send + Sync {
 /// Supports markdown formatting, chat IDs, and topic/thread replies.
 pub struct TelegramAdapter {
     bot: teloxide::Bot,
-    default_chat_id: Option<i64>,
+    config_chat_id: Option<i64>,
+    active_chat_id: Arc<parking_lot::RwLock<Option<i64>>>,
 }
 
 impl TelegramAdapter {
     pub fn new(bot: teloxide::Bot, default_chat_id: Option<i64>) -> Self {
-        Self { bot, default_chat_id }
+        Self {
+            bot,
+            config_chat_id: default_chat_id,
+            active_chat_id: Arc::new(parking_lot::RwLock::new(default_chat_id)),
+        }
+    }
+
+    /// Called by the Telegram channel on every incoming message so the adapter
+    /// always knows the most recent chat to deliver mid-task messages to.
+    pub fn set_active_chat(&self, chat_id: i64) {
+        *self.active_chat_id.write() = Some(chat_id);
     }
 }
 
@@ -124,10 +135,10 @@ impl PlatformAdapter for TelegramAdapter {
         use teloxide::prelude::*;
         use teloxide::types::ParseMode;
 
-        // Resolve chat ID
+        // Resolve chat ID: prefer explicit target, fall back to active/config default
         let chat_id: i64 = if target.is_empty() || target == "default" {
-            self.default_chat_id
-                .ok_or_else(|| anyhow!("No default Telegram chat ID configured"))?
+            self.active_chat_id.read()
+                .ok_or_else(|| anyhow!("No Telegram chat ID available. No active session and no default configured."))?
         } else {
             target.parse()
                 .map_err(|_| anyhow!("Invalid Telegram chat ID: '{}'. Expected numeric ID.", target))?
@@ -187,11 +198,11 @@ impl PlatformAdapter for TelegramAdapter {
 
     async fn list_targets(&self) -> Vec<MessageTarget> {
         let mut targets = Vec::new();
-        if let Some(chat_id) = self.default_chat_id {
+        if let Some(chat_id) = *self.active_chat_id.read() {
             targets.push(MessageTarget {
                 platform: "telegram".into(),
                 id: chat_id.to_string(),
-                name: "Home channel".into(),
+                name: "Active channel".into(),
                 kind: "dm".into(),
                 is_default: true,
             });
@@ -202,6 +213,124 @@ impl PlatformAdapter for TelegramAdapter {
     async fn is_connected(&self) -> bool {
         use teloxide::prelude::Requester;
         self.bot.get_me().await.is_ok()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Discord adapter
+// ---------------------------------------------------------------------------
+
+/// Discord platform adapter.
+///
+/// Uses serenity's Http client to send messages to Discord channels or DMs.
+/// Tracks the most recently active channel/user for mid-task delivery.
+pub struct DiscordAdapter {
+    http: Arc<serenity::http::Http>,
+    /// (channel_id, user_id) of the last incoming message
+    active_target: Arc<parking_lot::RwLock<Option<(u64, u64)>>>,
+}
+
+impl DiscordAdapter {
+    pub fn new(http: Arc<serenity::http::Http>) -> Self {
+        Self {
+            http,
+            active_target: Arc::new(parking_lot::RwLock::new(None)),
+        }
+    }
+
+    /// Called by the Discord channel on every incoming message so the adapter
+    /// always knows the most recent channel/user to deliver mid-task messages to.
+    pub fn set_active_target(&self, channel_id: u64, user_id: u64) {
+        *self.active_target.write() = Some((channel_id, user_id));
+    }
+}
+
+#[async_trait]
+impl PlatformAdapter for DiscordAdapter {
+    fn platform_name(&self) -> &str {
+        "discord"
+    }
+
+    async fn send_message(
+        &self,
+        target: &str,
+        text: &str,
+        _parse_mode: Option<&str>,
+    ) -> Result<DeliveryResult> {
+        use serenity::model::id::ChannelId;
+
+        // Resolve channel ID
+        let channel_id: u64 = if target.is_empty() || target == "default" {
+            // Read and drop the guard before any .await
+            let user_id = {
+                let guard = self.active_target.read();
+                let (_, uid) = guard.ok_or_else(|| anyhow!(
+                    "No Discord target available. No active session and no default configured."
+                ))?;
+                uid
+            };
+            // For DMs, create/get the DM channel
+            let user = serenity::model::id::UserId::new(user_id)
+                .to_user(&self.http).await?;
+            let dm_channel = user.create_dm_channel(&self.http).await?;
+            dm_channel.id.get()
+        } else {
+            target.parse()
+                .map_err(|_| anyhow!("Invalid Discord channel ID: '{}'. Expected numeric ID.", target))?
+        };
+
+        let ch = ChannelId::new(channel_id);
+
+        // Split long messages (Discord limit: 2000 chars)
+        let chunks = split_message(text, 2000);
+        let mut last_msg_id = None;
+
+        for chunk in &chunks {
+            match ch.say(&self.http, chunk).await {
+                Ok(msg) => {
+                    last_msg_id = Some(msg.id.get().to_string());
+                    debug!(channel_id = channel_id, "Discord message sent");
+                }
+                Err(e) => {
+                    warn!(error = %e, channel_id = channel_id, "Discord send failed");
+                    return Ok(DeliveryResult {
+                        success: false,
+                        platform: "discord".into(),
+                        target: channel_id.to_string(),
+                        message_id: None,
+                        error: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(DeliveryResult {
+            success: true,
+            platform: "discord".into(),
+            target: channel_id.to_string(),
+            message_id: last_msg_id,
+            error: None,
+        })
+    }
+
+    async fn list_targets(&self) -> Vec<MessageTarget> {
+        let mut targets = Vec::new();
+        if let Some((channel_id, user_id)) = *self.active_target.read() {
+            targets.push(MessageTarget {
+                platform: "discord".into(),
+                id: channel_id.to_string(),
+                name: format!("Active channel (user {})", user_id),
+                kind: "dm".into(),
+                is_default: true,
+            });
+        }
+        targets
+    }
+
+    async fn is_connected(&self) -> bool {
+        // If we have an HTTP client, assume connected
+        // (serenity manages the websocket separately)
+        true
     }
 }
 

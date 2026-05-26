@@ -12,14 +12,21 @@ pub struct DiscordHandler {
     agent: Arc<crate::agent::AgentCore>,
     model_store: Arc<crate::memory::model_store::ModelStore>,
     code_mode: Arc<crate::memory::CodeModeStore>,
+    adapter: Option<Arc<crate::tools::DiscordAdapter>>,
 }
 
 impl DiscordHandler {
-    pub fn new(agent: Arc<crate::agent::AgentCore>, model_store: Arc<crate::memory::model_store::ModelStore>, code_mode: Arc<crate::memory::CodeModeStore>) -> Self {
+    pub fn new(
+        agent: Arc<crate::agent::AgentCore>,
+        model_store: Arc<crate::memory::model_store::ModelStore>,
+        code_mode: Arc<crate::memory::CodeModeStore>,
+        adapter: Option<Arc<crate::tools::DiscordAdapter>>,
+    ) -> Self {
         Self {
             agent,
             model_store,
             code_mode,
+            adapter,
         }
     }
 }
@@ -48,6 +55,11 @@ impl EventHandler for DiscordHandler {
                 .replace(&format!("<@!{}>", bot_user.id), "")
                 .trim()
                 .to_string();
+
+            // Track active channel for mid-task message delivery
+            if let Some(ref adapter) = self.adapter {
+                adapter.set_active_target(msg.channel_id.get(), user_id.get());
+            }
 
             info!("📩 Message from {}: {}", user_id, content);
 
@@ -184,6 +196,7 @@ pub async fn start(
     model_store: Arc<crate::memory::model_store::ModelStore>,
     code_mode: Arc<crate::memory::CodeModeStore>,
     config: Option<crate::config::DiscordConfig>,
+    adapter: Option<Arc<crate::tools::DiscordAdapter>>,
 ) -> Result<()> {
     if let Some(config) = config {
         if config.enabled && !config.token.is_empty() {
@@ -195,7 +208,7 @@ pub async fn start(
                 | GatewayIntents::GUILD_MEMBERS;
 
             let mut client = Client::builder(&config.token, intents)
-                .event_handler(DiscordHandler::new(agent, model_store, code_mode))
+                .event_handler(DiscordHandler::new(agent, model_store, code_mode, adapter))
                 .await
                 .map_err(|e| anyhow::anyhow!("Discord client builder error: {}", e))?;
 

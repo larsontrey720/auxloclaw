@@ -126,10 +126,18 @@ pub struct TelegramState {
     config: TelegramConfig,
     /// Per-user flow state for multi-step model setup (ephemeral, lost on restart)
     pending_model_flows: RwLock<HashMap<i64, ModelFlowState>>,
+    /// Adapter for mid-task message delivery
+    message_adapter: Option<Arc<crate::tools::TelegramAdapter>>,
 }
 
 impl TelegramState {
-    pub fn new(agent: Arc<AgentCore>, model_store: Arc<crate::memory::model_store::ModelStore>, code_mode: Arc<crate::memory::CodeModeStore>, config: TelegramConfig) -> Self {
+    pub fn new(
+        agent: Arc<AgentCore>,
+        model_store: Arc<crate::memory::model_store::ModelStore>,
+        code_mode: Arc<crate::memory::CodeModeStore>,
+        config: TelegramConfig,
+        message_adapter: Option<Arc<crate::tools::TelegramAdapter>>,
+    ) -> Self {
         Self {
             agent,
             model_store,
@@ -137,6 +145,7 @@ impl TelegramState {
             code_mode,
             config,
             pending_model_flows: RwLock::new(HashMap::new()),
+            message_adapter,
         }
     }
 
@@ -207,20 +216,20 @@ pub async fn start(
 
     let bot = Bot::new(config.token.clone());
 
-    // Register Telegram adapter with message router if provided
+    // Create Telegram adapter for mid-task message delivery
+    let default_chat_id = config.allowed_users.first()
+        .and_then(|u| u.parse::<i64>().ok());
+    let tg_adapter = Arc::new(crate::tools::TelegramAdapter::new(
+        bot.clone(),
+        default_chat_id,
+    ));
+
     if let Some(router) = message_router {
-        // Try to use first allowed user as default chat ID
-        let default_chat_id = config.allowed_users.first()
-            .and_then(|u| u.parse::<i64>().ok());
-        let adapter = Arc::new(crate::tools::TelegramAdapter::new(
-            bot.clone(),
-            default_chat_id,
-        ));
-        router.register(adapter).await;
+        router.register(tg_adapter.clone() as Arc<dyn crate::tools::PlatformAdapter>).await;
         tracing::info!("Telegram registered with message router");
     }
 
-    let state = Arc::new(TelegramState::new(agent, model_store, code_mode, config));
+    let state = Arc::new(TelegramState::new(agent, model_store, code_mode, config, Some(tg_adapter)));
 
     let commands = vec![
         teloxide::types::BotCommand { command: "memory".into(), description: "View agent memory".into() },
@@ -678,6 +687,11 @@ async fn handle_message(bot: Bot, msg: Message, state: Arc<TelegramState>) -> Re
     let text = msg.text().unwrap_or("");
     if text.is_empty() {
         return Ok(());
+    }
+
+    // Track active chat for mid-task message delivery
+    if let Some(ref adapter) = state.message_adapter {
+        adapter.set_active_chat(chat_id);
     }
 
     // Intercept model setup flow BEFORE any other check so endpoint/key
