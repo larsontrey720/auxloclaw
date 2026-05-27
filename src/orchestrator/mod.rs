@@ -81,6 +81,8 @@ impl ToolOrchestrator {
         self.register(Arc::new(BrowserClickTool));
         self.register(Arc::new(BrowserFillTool));
         self.register(Arc::new(BrowserScreenshotTool));
+        use crate::tools::stealth::StealthFetchTool;
+        self.register(Arc::new(StealthFetchTool));
         self.register(Arc::new(BrowserGetTool));
         self.register(Arc::new(BrowserCloseTool));
         self.register(Arc::new(XFetchTool));
