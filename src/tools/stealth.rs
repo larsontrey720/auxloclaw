@@ -138,15 +138,41 @@ impl Tool for StealthFetchTool {
 }
 
 fn check_scrapling() -> Result<()> {
+    // Check python3
     let output = Command::new("python3")
         .args(["-c", "import scrapling; print(scrapling.__version__)"])
         .output()
         .map_err(|e| anyhow!("Python3 not available: {}", e))?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow!(
-            "Scrapling not installed. Run: pip install 'scrapling[all]>=0.4.7' && scrapling install"
+            "Scrapling not installed. Run:\n  pip install 'scrapling[all]>=0.4.7'\n  scrapling install\n\nDetails: {}",
+            stderr.trim()
         ));
     }
+
+    // Check playwright
+    let pw_output = Command::new("python3")
+        .args(["-c", "import playwright"])
+        .output()
+        .map_err(|e| anyhow!("Failed to check playwright: {}", e))?;
+
+    if !pw_output.status.success() {
+        let stderr = String::from_utf8_lossy(&pw_output.stderr);
+        return Err(anyhow!(
+            "Playwright not installed (required by scrapling). Run:\n  pip install playwright\n  playwright install --with-deps chromium\n\nDetails: {}",
+            stderr.trim()
+        ));
+    }
+
+    // Check helper script
+    if !std::path::Path::new(HELPER_SCRIPT).exists() {
+        return Err(anyhow!(
+            "stealth_fetch helper script not found at {}. Reinstall auxloclaw to deploy it:\n  curl -fsSL https://raw.githubusercontent.com/Auxlo-xyz/auxloclaw/master/get.sh | bash",
+            HELPER_SCRIPT
+        ));
+    }
+
     Ok(())
 }

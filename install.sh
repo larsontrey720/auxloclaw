@@ -221,6 +221,52 @@ post_install() {
         ok "scrapling already installed"
     fi
 
+    # playwright (required by scrapling stealth/dynamic modes)
+    if ! python3 -c "import playwright" 2>/dev/null; then
+        if command -v pip3 >/dev/null 2>&1; then
+            info "Installing playwright (browser automation)..."
+            pip3 install playwright --break-system-packages -q 2>/dev/null \
+                || warn "playwright install failed (manual: pip install playwright)"
+        elif command -v pip >/dev/null 2>&1; then
+            info "Installing playwright (browser automation)..."
+            pip install playwright --break-system-packages -q 2>/dev/null \
+                || warn "playwright install failed (manual: pip install playwright)"
+        else
+            warn "pip not found -- skipping playwright (install Python, then: pip install playwright)"
+        fi
+    else
+        ok "playwright already installed"
+    fi
+
+    # Download Chromium for Playwright (if not already installed)
+    if python3 -c "import playwright" 2>/dev/null; then
+        if ! python3 -c "
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    b = p.chromium
+" 2>/dev/null; then
+            info "Downloading Chromium for Playwright..."
+            python3 -m playwright install --with-deps chromium 2>&1 | tail -5 >&2 \
+                || warn "Chromium download failed (manual: playwright install --with-deps chromium)"
+        else
+            ok "Chromium already installed for Playwright"
+        fi
+    fi
+
+    # Deploy stealth_fetch helper script
+    local HELPER_DIR="/usr/local/share/auxloclaw"
+    local HELPER_PATH="${HELPER_DIR}/stealth_fetch_helper.py"
+    if [ ! -f "$HELPER_PATH" ]; then
+        info "Deploying stealth_fetch helper script..."
+        mkdir -p "$HELPER_DIR"
+        curl -fsSL "https://raw.githubusercontent.com/Auxlo-xyz/auxloclaw/master/scripts/stealth_fetch_helper.py" \
+            -o "$HELPER_PATH" \
+            && chmod +x "$HELPER_PATH" \
+            || warn "Failed to download stealth_fetch helper script"
+    else
+        ok "stealth_fetch helper script deployed"
+    fi
+
     echo "" >&2
     echo -e "${BOLD}Next steps:${NC}" >&2
     echo "" >&2

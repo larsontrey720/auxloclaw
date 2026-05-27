@@ -119,6 +119,42 @@ main() {
         fi
     fi
 
+    # Install playwright (required by scrapling stealth/dynamic modes)
+    if ! python3 -c "import playwright" 2>/dev/null; then
+        echo "Installing playwright (browser automation)..."
+        if ensure_pip; then
+            $PIP install playwright --break-system-packages -q 2>&1 | tail -5 \
+                || echo "Warning: playwright install failed (manual: pip install playwright)"
+        else
+            echo "Warning: playwright install failed -- pip not available (manual: pip install playwright)"
+        fi
+    fi
+
+    # Download Chromium for Playwright (if not already installed)
+    if python3 -c "import playwright" 2>/dev/null; then
+        if ! python3 -c "
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    b = p.chromium
+" 2>/dev/null; then
+            echo "Downloading Chromium for Playwright..."
+            python3 -m playwright install --with-deps chromium 2>&1 | tail -5 \
+                || echo "Warning: Chromium download failed (manual: playwright install --with-deps chromium)"
+        fi
+    fi
+
+    # Deploy stealth_fetch helper script
+    local HELPER_DIR="/usr/local/share/auxloclaw"
+    local HELPER_PATH="${HELPER_DIR}/stealth_fetch_helper.py"
+    if [ ! -f "$HELPER_PATH" ]; then
+        echo "Deploying stealth_fetch helper script..."
+        mkdir -p "$HELPER_DIR"
+        curl -fsSL "https://raw.githubusercontent.com/Auxlo-xyz/auxloclaw/master/scripts/stealth_fetch_helper.py" \
+            -o "$HELPER_PATH" \
+            && chmod +x "$HELPER_PATH" \
+            || echo "Warning: Failed to download stealth_fetch helper script"
+    fi
+
     echo "Browser: agent-browser (by Vercel)"
     echo "Web search: webserp (multi-engine, no API key)"
     echo "Stealth fetch: scrapling (anti-bot bypass, TLS fingerprint spoofing)"
