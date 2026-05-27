@@ -107,8 +107,21 @@ main() {
         fi
     fi
 
+    # Install scrapling (stealth web fetching with anti-bot bypass)
+    if ! command -v scrapling &>/dev/null; then
+        echo "Installing scrapling (stealth web fetcher)..."
+        if ensure_pip; then
+            $PIP install 'scrapling[all]>=0.4.7' --break-system-packages -q 2>&1 | tail -5 \
+                && scrapling install \
+                || echo "Warning: scrapling install failed (manual: pip install 'scrapling[all]>=0.4.7' && scrapling install)"
+        else
+            echo "Warning: scrapling install failed -- pip not available (manual: pip install 'scrapling[all]>=0.4.7' && scrapling install)"
+        fi
+    fi
+
     echo "Browser: agent-browser (by Vercel)"
     echo "Web search: webserp (multi-engine, no API key)"
+    echo "Stealth fetch: scrapling (anti-bot bypass, TLS fingerprint spoofing)"
 }
 
 main "$@"

@@ -169,6 +169,58 @@ post_install() {
         echo "" >&2
     fi
 
+    # Install optional dependencies
+    echo "" >&2
+    info "Installing optional dependencies..."
+
+    # agent-browser (headless browser automation)
+    if ! command -v agent-browser >/dev/null 2>&1; then
+        if command -v npm >/dev/null 2>&1; then
+            info "Installing agent-browser..."
+            npm install -g agent-browser 2>/dev/null \
+                && agent-browser install --with-deps 2>/dev/null \
+                || warn "agent-browser install failed (manual: npm install -g agent-browser && agent-browser install --with-deps)"
+        else
+            warn "npm not found -- skipping agent-browser (install Node.js, then: npm install -g agent-browser)"
+        fi
+    else
+        ok "agent-browser already installed"
+    fi
+
+    # webserp (multi-engine web search)
+    if ! command -v webserp >/dev/null 2>&1; then
+        if command -v pip3 >/dev/null 2>&1; then
+            info "Installing webserp..."
+            pip3 install webserp --break-system-packages -q 2>/dev/null \
+                || warn "webserp install failed (manual: pip install webserp)"
+        elif command -v pip >/dev/null 2>&1; then
+            pip install webserp --break-system-packages -q 2>/dev/null \
+                || warn "webserp install failed (manual: pip install webserp)"
+        else
+            warn "pip not found -- skipping webserp (install Python, then: pip install webserp)"
+        fi
+    else
+        ok "webserp already installed"
+    fi
+
+    # scrapling (stealth web fetching with anti-bot bypass)
+    if ! command -v scrapling >/dev/null 2>&1; then
+        if command -v pip3 >/dev/null 2>&1; then
+            info "Installing scrapling (stealth web fetcher)..."
+            pip3 install 'scrapling[all]>=0.4.7' --break-system-packages -q 2>/dev/null \
+                && scrapling install 2>/dev/null \
+                || warn "scrapling install failed (manual: pip install 'scrapling[all]>=0.4.7' && scrapling install)"
+        elif command -v pip >/dev/null 2>&1; then
+            pip install 'scrapling[all]>=0.4.7' --break-system-packages -q 2>/dev/null \
+                && scrapling install 2>/dev/null \
+                || warn "scrapling install failed (manual: pip install 'scrapling[all]>=0.4.7' && scrapling install)"
+        else
+            warn "pip not found -- skipping scrapling (install Python, then: pip install 'scrapling[all]>=0.4.7' && scrapling install)"
+        fi
+    else
+        ok "scrapling already installed"
+    fi
+
     echo "" >&2
     echo -e "${BOLD}Next steps:${NC}" >&2
     echo "" >&2
