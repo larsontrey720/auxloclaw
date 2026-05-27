@@ -29,10 +29,15 @@ def main():
         fetcher = Fetcher()
 
     try:
-        if args.method == "POST":
-            page = fetcher.post(args.url, data=args.body, headers=extra_headers if extra_headers else None)
+        if args.mode == "simple":
+            # Fetcher has explicit get/post/put/delete methods
+            if args.method == "POST":
+                page = fetcher.post(args.url, data=args.body, headers=extra_headers if extra_headers else None)
+            else:
+                page = fetcher.get(args.url, headers=extra_headers if extra_headers else None)
         else:
-            page = fetcher.get(args.url, headers=extra_headers if extra_headers else None)
+            # StealthyFetcher and DynamicFetcher use .fetch(url) method
+            page = fetcher.fetch(args.url)
 
         if args.selector:
             results = page.css(args.selector).getall()
@@ -41,7 +46,15 @@ def main():
             else:
                 print(json.dumps([]))
         else:
-            text = page.text if hasattr(page, 'text') else str(page)
+            # page.text may be empty; page.body (bytes) is reliable
+            if hasattr(page, 'body') and page.body:
+                text = page.body.decode('utf-8', errors='replace')
+            elif hasattr(page, 'text') and page.text:
+                text = str(page.text)
+            elif hasattr(page, 'html_content') and page.html_content:
+                text = str(page.html_content)
+            else:
+                text = str(page)
             status = page.status if hasattr(page, 'status') else 'unknown'
             print(f"[Status: {status}]\n{text}")
 
